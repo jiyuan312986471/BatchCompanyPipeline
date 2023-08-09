@@ -1,3 +1,4 @@
+
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import *
 
@@ -8,14 +9,12 @@ def init_spark():
     return spark, sc
 
 
-def main():
+def main(f_etab: str, f_ul: str, dir_output: str):
     spark, sc = init_spark()
 
     # input data
-    df_etab = spark.read.options(header='True', delimiter=',') \
-        .csv(r'C:\Users\YuanJI\Desktop\Trustpair\sample\StockEtablissementHistorique.csv')
-    df_ul = spark.read.options(header='True', delimiter=',') \
-        .csv(r'C:\Users\YuanJI\Desktop\Trustpair\sample\StockUniteLegaleHistorique.csv')
+    df_etab = spark.read.options(header='True', delimiter=',').csv(f_etab)
+    df_ul = spark.read.options(header='True', delimiter=',').csv(f_ul)
 
     # parse data - etab
     df_etab_parsed = df_etab \
@@ -68,9 +67,30 @@ def main():
         .select(*(col(x).alias('ul_' + x) for x in df_ul_parsed.columns))
     df = etab.join(ul, etab['etab_siren'] == ul['ul_siren'], how='left')
 
-    df.printSchema()
-    df.show()
+    # output
+    df.write.csv(dir_output, header=True)
 
 
 if __name__ == '__main__':
-    main()
+    import argparse
+
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='BatchCompanyPipeline')
+    parser.add_argument('-e', '--stock-etablissement-historique',
+                        required=True, metavar="/path/to/file",
+                        help='Path to etablissement dataset')
+    parser.add_argument('-u', '--stock-unite-legale-historique',
+                        required=True, metavar="/path/to/file",
+                        help='Path to unite legale dataset')
+    parser.add_argument('-o', '--output', default='./output/',
+                        required=False, metavar="/path/to/output/dir/",
+                        help='Path to output directory')
+    args = parser.parse_args()
+
+    # args setting
+    f_etab = args.stock_etablissement_historique
+    f_ul = args.stock_unite_legale_historique
+    dir_output = args.output
+
+    # run main program
+    main(f_etab, f_ul, dir_output)
