@@ -1,4 +1,26 @@
+# -*- coding: utf-8 -*-
+"""
+Batch Company Pipeline
+Simple pipeline for Stock Etablissement / Unite Legale Historique data.
 
+Written by Yuan Ji
+
+------------------------------------------------------------
+
+Usage:
+
+# Run pipeline for full-sync mode
+python3 main.py -e /path/to/etablissement/file -u /path/to/unit/legale/file --full
+
+# Run pipeline for daily (incremental) mode
+python3 main.py -e /path/to/etablissement/file -u /path/to/unit/legale/file
+
+------------------------------------------------------------
+
+
+"""
+
+from datetime import date, timedelta
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import *
 
@@ -9,17 +31,35 @@ def init_spark():
     return spark, sc
 
 
-def main(f_etab: str, f_ul: str, dir_output: str):
+def main(f_etab: str, f_ul: str, dir_output: str, full_sync: bool = False):
     spark, sc = init_spark()
 
     # input data
     df_etab = spark.read.options(header='True', delimiter=',').csv(f_etab)
     df_ul = spark.read.options(header='True', delimiter=',').csv(f_ul)
 
-    # parse data - etab
+    # date parse
     df_etab_parsed = df_etab \
         .withColumn('dateFin', col('dateFin').cast('date')) \
-        .withColumn('dateDebut', col('dateDebut').cast('date')) \
+        .withColumn('dateDebut', col('dateDebut').cast('date'))
+    df_ul_parsed = df_ul \
+        .withColumn('dateFin', col('dateFin').cast('date')) \
+        .withColumn('dateDebut', col('dateDebut').cast('date'))
+
+    # filter data by date based on full-sync mode or incremental mode
+    if not full_sync:
+        # keep only rows with dateFin=d-1 or dateDebut=d-1
+        today = date.today()
+        yesterday = (today - timedelta(days=1)).strftime('%Y-%m-%d')
+        df_etab_parsed = df_etab_parsed.filter(
+            (col('dateDebut') >= lit(yesterday)) | \
+            (col('dateFin') >= lit(yesterday)))
+        df_ul_parsed = df_ul_parsed.filter(
+            (col('dateDebut') >= lit(yesterday)) | \
+            (col('dateFin') >= lit(yesterday)))
+
+    # parse data - etab
+    df_etab_parsed = df_etab_parsed \
         .withColumn('etatAdministratifEtablissement',
             when(col('etatAdministratifEtablissement').isin(['A', 'F']),
                  col('etatAdministratifEtablissement')) \
@@ -35,9 +75,7 @@ def main(f_etab: str, f_ul: str, dir_output: str):
             .otherwise(None))
 
     # parse data - ul
-    df_ul_parsed = df_ul \
-        .withColumn('dateFin', col('dateFin').cast('date')) \
-        .withColumn('dateDebut', col('dateDebut').cast('date')) \
+    df_ul_parsed = df_ul_parsed \
         .withColumn('etatAdministratifUniteLegale',
             when(col('etatAdministratifUniteLegale').isin(['A', 'C']),
                  col('etatAdministratifUniteLegale')) \
@@ -65,7 +103,7 @@ def main(f_etab: str, f_ul: str, dir_output: str):
         .select(*(col(x).alias('etab_' + x) for x in df_etab_parsed.columns))
     ul = df_ul_parsed \
         .select(*(col(x).alias('ul_' + x) for x in df_ul_parsed.columns))
-    df = etab.join(ul, etab['etab_siren'] == ul['ul_siren'], how='left')
+    df = etab.join(ul, etab['etab_siren'] == ul['ul_siren'], how='full')
 
     # output
     df.write.csv(dir_output, header=True)
@@ -85,6 +123,9 @@ if __name__ == '__main__':
     parser.add_argument('-o', '--output', default='./output/',
                         required=False, metavar="/path/to/output/dir/",
                         help='Path to output directory')
+    parser.add_argument('--full', default=False, required=False,
+                        action='store_true', help='Whether pipeline runs under '
+                                                  'full sync mode.')
     args = parser.parse_args()
 
     # args setting
@@ -93,4 +134,4 @@ if __name__ == '__main__':
     dir_output = args.output
 
     # run main program
-    main(f_etab, f_ul, dir_output)
+    main(f_etab, f_ul, dir_output, args.full)
