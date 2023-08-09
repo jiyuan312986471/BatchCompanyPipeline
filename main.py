@@ -10,14 +10,26 @@ Written by Yuan Ji
 Usage:
 
 # Run pipeline for full-sync mode
-python3 main.py -e /path/to/etablissement/file -u /path/to/unit/legale/file --full
+python main.py -e /path/to/etablissement/file -u /path/to/unit/legale/file -o /path/to/output/dir/ --full
 
 # Run pipeline for daily (incremental) mode
-python3 main.py -e /path/to/etablissement/file -u /path/to/unit/legale/file
+python main.py -e /path/to/etablissement/file -u /path/to/unit/legale/file -o /path/to/output/dir/
 
 ------------------------------------------------------------
 
+Workflow architecture:
 
+This script runs the data processing pipeline once. In order to keep Stock
+Historique data up-to-date, here's one of possible workflow architectures:
+
+             run              output to
+Scheduler ---------> Script -------------> Datalake
+
+where Scheduler could be a simple Python script, Azure Data Factory pipeline
+trigger or equivalents.
+
+Sink Datalake could be designed as tree structure: /year/month/day/ so that the
+output of pipeline runs are stored day by day and incrementally.
 """
 
 from datetime import date, timedelta
