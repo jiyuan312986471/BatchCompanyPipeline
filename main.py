@@ -1,5 +1,5 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import concat, when, col
+from pyspark.sql.functions import *
 
 
 def init_spark():
@@ -16,9 +16,6 @@ def main():
         .csv(r'C:\Users\YuanJI\Desktop\Trustpair\sample\StockEtablissementHistorique.csv')
     df_ul = spark.read.options(header='True', delimiter=',') \
         .csv(r'C:\Users\YuanJI\Desktop\Trustpair\sample\StockUniteLegaleHistorique.csv')
-
-    # add SIRET for df_ul
-    df_ul = df_ul.withColumn('siret', concat('siren', 'nicSiegeUniteLegale'))
 
     # parse data - etab
     df_etab_parsed = df_etab \
@@ -60,8 +57,19 @@ def main():
                  col('caractereEmployeurUniteLegale')) \
             .otherwise(None))
 
-    df_etab_parsed.printSchema()
-    df_ul_parsed.printSchema()
+    # extract SIREN for etablissement
+    df_etab_parsed = df_etab_parsed.withColumn('siren',
+        expr("regexp_replace(siret, concat(coalesce(nic, ''), '$'), '')"))
+
+    # merge etablissement and unite legale
+    etab = df_etab_parsed \
+        .select(*(col(x).alias('etab_' + x) for x in df_etab_parsed.columns))
+    ul = df_ul_parsed \
+        .select(*(col(x).alias('ul_' + x) for x in df_ul_parsed.columns))
+    df = etab.join(ul, etab['etab_siren'] == ul['ul_siren'], how='left')
+
+    df.printSchema()
+    df.show()
 
 
 if __name__ == '__main__':
